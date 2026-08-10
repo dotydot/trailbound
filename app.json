@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "trailbound",
+    "slug": "trailbound",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "owner": "dotydot",
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dotydot.trailbound",
+      "infoPlist": {
+        "UIBackgroundModes": ["location"],
+
+        "NSLocationWhenInUseUsageDescription":
+          "Trailbound records the route of your hike so it can turn the distance and elevation you actually covered into your character's progress.",
+
+        "NSLocationAlwaysAndWhenInUseUsageDescription":
+          "Trailbound keeps recording your route with the screen off so your phone battery lasts the whole hike. Your route is stored on your device and is never shared.",
+
+        "NSMotionUsageDescription":
+          "Trailbound reads your step count and barometric altitude to measure elevation gain accurately and to confirm a hike was walked rather than driven.",
+
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.dotydot.trailbound",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "ACTIVITY_RECOGNITION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+
+    "plugins": [
+      "expo-sqlite",
+      "expo-status-bar",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission":
+            "Trailbound keeps recording your route with the screen off so your phone battery lasts the whole hike.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-sensors",
+      "expo-task-manager"
+    ],
+
+    "extra": {
+      "eas": {
+        "projectId": "9c85280d-5c1a-4f91-81a1-796f178e787b"
+      }
+    }
+  }
+}
