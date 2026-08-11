@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------
    App.js
-   The whole vertical slice: record a hike, prove the numbers,
-   resolve it into encounters, tell the story, take the loot.
+   Record a hike, prove the numbers, resolve it into encounters,
+   tell the story, take the loot. Plus dev tools for tuning.
    ------------------------------------------------------------ */
 
 import React, { useEffect, useState, useRef } from "react";
@@ -12,23 +12,23 @@ import { deactivateKeepAwake } from "expo-keep-awake";
 
 import {
   initDb, requestPermissions, startTracking, stopTracking,
-  loadTrack, activeTrackId,
+  loadTrack, activeTrackId, saveBaroSamples, saveStepCount,
 } from "./src/tracking/locationTask";
 import { summarizeTrack, validate, downsample } from "./src/tracking/trackMath";
 
-import { resolveHike, commitHike } from "./src/game/engine";
+import { resolveHike, commitHike, REGIONS, levelFromXp } from "./src/game/rules";
 import { buildLog, CORE_PACK } from "./src/game/narrative";
-import { REGIONS, levelFromXp } from "./src/game/world";
 import {
   initCharacterTable, loadCharacter, saveCharacter, resetCharacter,
   applyElapsed, applyDailyCap, awardBadges,
 } from "./src/game/character";
 
 import AfterAction from "./src/screens/AfterAction";
+import DevTools from "./src/screens/DevTools";
 
 const C = {
   paper:"#EDEFE3", paperDeep:"#E2E5D6", contour:"#9C6B3F",
-  ink:"#1E3A2F", inkSoft:"#4A6355", danger:"#A63D2E", ok:"#3F7A52", gold:"#B0682A",
+  ink:"#1E3A2F", inkSoft:"#4A6355", danger:"#A63D2E", ok:"#3F7A52", water:"#4A7C94",
 };
 
 export default function App() {
@@ -37,19 +37,19 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [mode, setMode] = useState(null);
   const [elapsed, setElapsed] = useState(0);
-  const [pending, setPending] = useState(null);   // { summary, validation, result, log }
+  const [pending, setPending] = useState(null);
+  const [showDev, setShowDev] = useState(false);
   const [banner, setBanner] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const baroSamples = useRef([]);   // [{ t, hPa }]
+  const baroSamples = useRef([]);
   const baroSub = useRef(null);
   const pedoSub = useRef(null);
   const steps = useRef(0);
   const startedAt = useRef(null);
   const timer = useRef(null);
 
-  /* ---------- boot ---------- */
   useEffect(() => {
     (async () => {
       try {
@@ -58,12 +58,9 @@ export default function App() {
         const loaded = applyElapsed(await loadCharacter());
         await saveCharacter(loaded);
         setCharacter(loaded);
-
         const id = await activeTrackId();
         if (id) { setRecording(true); startedAt.current = Date.now(); tick(); }
-      } catch (e) {
-        setErr(`Startup failed: ${e.message}`);
-      }
+      } catch (e) { setErr(`Startup failed: ${e.message}`); }
       setReady(true);
     })();
     return () => clearInterval(timer.current);
@@ -82,7 +79,6 @@ export default function App() {
     baroSub.current = null; pedoSub.current = null;
   }
 
-  /* ---------- start ---------- */
   async function begin() {
     if (busy) return;
     setBusy(true); setErr(null); setBanner(null);
@@ -103,7 +99,7 @@ export default function App() {
 
       try {
         if (await Barometer.isAvailableAsync()) {
-          Barometer.setUpdateInterval(5000);   // iOS ignores this; we downsample later
+          Barometer.setUpdateInterval(5000);
           baroSub.current = Barometer.addListener(({ pressure }) => {
             if (pressure) baroSamples.current.push({ t: Date.now(), hPa: pressure });
           });
@@ -119,9 +115,7 @@ export default function App() {
       const started = await startTracking();
       setMode(started.mode);
       startedAt.current = Date.now();
-      setElapsed(0);
-      setRecording(true);
-      setPending(null);
+      setElapsed(0); setRecording(true); setPending(null);
       tick();
       deactivateKeepAwake().catch(() => {});
     } catch (e) {
@@ -131,7 +125,6 @@ export default function App() {
     setBusy(false);
   }
 
-  /* ---------- finish: the whole pipeline ---------- */
   async function end() {
     if (busy) return;
     setBusy(true);
@@ -140,30 +133,24 @@ export default function App() {
       cleanupSensors();
       clearInterval(timer.current);
       setRecording(false);
-
       if (!trackId) { setErr("No active track to close."); setBusy(false); return; }
 
-      const track = await loadTrack(trackId);
-
-      /* 1. numbers you can trust */
+      /* persist sensors so this hike can be re-resolved later */
       const trimmed = downsample(baroSamples.current, 5000);
+      await saveBaroSamples(trackId, trimmed);
+      await saveStepCount(trackId, steps.current || null);
+
+      const track = await loadTrack(trackId);
       const summary = summarizeTrack(track.points, {
         startedAt: track.started_at,
         baroSamples: trimmed,
         stepCount: steps.current || null,
       });
-
-      /* 2. gates */
-      const validation = validate(summary, { mocked: false, xpToday: character.dailyXp || 0 });
-
-      /* 3. the game */
+      const validation = validate(summary, { mocked:false, xpToday: character.dailyXp || 0 });
       const result = resolveHike(summary, character, {
         trackPoints: track.points,
         seed: `${trackId}-${track.started_at}`,
-        intention: character.intention,
       });
-
-      /* 4. the story */
       const log = buildLog(result, summary, character, [CORE_PACK], { seed: trackId });
 
       setPending({ summary, validation, result, log, trackId });
@@ -175,17 +162,13 @@ export default function App() {
     setBusy(false);
   }
 
-  /* ---------- commit ---------- */
   async function commit(hauledIds) {
     if (!pending) return;
     try {
       let next = commitHike(character, pending.result, pending.summary, hauledIds);
-
       const capped = applyDailyCap(next, pending.result.xp.total);
       next = capped.character;
-      if (capped.capped) {
-        next.xp = (character.xp || 0) + capped.granted;
-      }
+      if (capped.capped) next.xp = (character.xp || 0) + capped.granted;
 
       const withBadges = awardBadges(next);
       next = withBadges.character;
@@ -202,24 +185,31 @@ export default function App() {
       if (capped.capped) bits.push("Daily XP cap reached.");
       if (pending.result.tally.settled) bits.push("Account settled.");
       setBanner(bits.join(" ") || "Hike recorded.");
-    } catch (e) {
-      setErr(`Couldn't save: ${e.message}`);
-    }
+    } catch (e) { setErr(`Couldn't save: ${e.message}`); }
   }
 
   async function wipe() {
-    const fresh = await resetCharacter();
-    setCharacter(fresh);
-    setPending(null);
-    setBanner("Character reset. Tracks kept.");
+    Alert.alert("Reset character?", "Tracks are kept. Progress is not.", [
+      { text:"Cancel", style:"cancel" },
+      { text:"Reset", style:"destructive", onPress: async () => {
+          const fresh = await resetCharacter();
+          setCharacter(fresh); setPending(null);
+          setBanner("Character reset. Tracks kept.");
+        } },
+    ]);
   }
 
-  /* ---------- render ---------- */
   if (!ready || !character) {
+    return <View style={[s.safe, s.center]}><Text style={s.hint}>Starting up…</Text></View>;
+  }
+
+  if (showDev) {
     return (
-      <View style={[s.safe, s.center]}>
-        <Text style={s.hint}>Starting up…</Text>
-      </View>
+      <SafeAreaProvider>
+        <SafeAreaView style={s.safe}>
+          <DevTools character={character} onClose={() => setShowDev(false)} />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   }
 
@@ -255,7 +245,7 @@ export default function App() {
             <Stat label="Level" v={prog.level} />
             <Stat label="Condition" v={character.condition} />
             <Stat label="Hikes" v={character.hikes} />
-            <Stat label="Vertical" v={`${(character.totalGain || 0).toLocaleString()} ft`} />
+            <Stat label="Vertical" v={`${(character.totalGain || 0).toLocaleString()}`} />
           </View>
 
           {recording && (
@@ -276,11 +266,7 @@ export default function App() {
             </Text>
           </Pressable>
 
-          {banner && (
-            <View style={s.banner}>
-              <Text style={s.bannerText}>{banner}</Text>
-            </View>
-          )}
+          {banner && <View style={s.banner}><Text style={s.bannerText}>{banner}</Text></View>}
 
           {err && (
             <View style={s.errBox}>
@@ -295,6 +281,10 @@ export default function App() {
               {" "}open account(s) · {(character.stash || []).length} items in the stash
             </Text>
           )}
+
+          <Pressable onPress={() => setShowDev(true)} style={s.devBtn}>
+            <Text style={s.devText}>Dev tools · tracks, re-resolve, export</Text>
+          </Pressable>
 
           <Pressable onPress={wipe} style={s.linkBtn}>
             <Text style={s.linkText}>Reset character</Text>
@@ -323,32 +313,24 @@ const s = StyleSheet.create({
   wrap:{ padding:22, paddingBottom:60 },
   eyebrow:{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.contour },
   h1:{ fontSize:32, fontWeight:"700", color:C.ink, marginTop:2 },
-
   statRow:{ flexDirection:"row", marginTop:16, borderWidth:1, borderColor:"#C4A882" },
   stat:{ flex:1, padding:10, backgroundColor:C.paperDeep },
   statLabel:{ fontSize:8.5, letterSpacing:1.2, textTransform:"uppercase", color:C.inkSoft },
-  statValue:{ fontSize:16, fontWeight:"700", color:C.ink, marginTop:2,
-              fontVariant:["tabular-nums"] },
-
+  statValue:{ fontSize:16, fontWeight:"700", color:C.ink, marginTop:2, fontVariant:["tabular-nums"] },
   timer:{ fontSize:44, fontVariant:["tabular-nums"], color:C.ink, marginTop:18 },
   hint:{ fontSize:14, color:C.inkSoft, marginTop:8, lineHeight:20 },
-
   btn:{ marginTop:24, backgroundColor:C.ink, paddingVertical:17, alignItems:"center" },
   btnStop:{ backgroundColor:C.danger },
   btnBusy:{ opacity:0.5 },
-  btnText:{ color:C.paper, fontSize:15, letterSpacing:2,
-            textTransform:"uppercase", fontWeight:"600" },
-
-  banner:{ marginTop:18, borderWidth:1, borderColor:C.contour,
-           backgroundColor:"#FFF8E8", padding:13 },
+  btnText:{ color:C.paper, fontSize:15, letterSpacing:2, textTransform:"uppercase", fontWeight:"600" },
+  banner:{ marginTop:18, borderWidth:1, borderColor:C.contour, backgroundColor:"#FFF8E8", padding:13 },
   bannerText:{ fontSize:14, color:C.ink, lineHeight:20 },
-
-  errBox:{ marginTop:18, borderWidth:1, borderColor:C.danger,
-           backgroundColor:"#FBEDEA", padding:13 },
+  errBox:{ marginTop:18, borderWidth:1, borderColor:C.danger, backgroundColor:"#FBEDEA", padding:13 },
   errTitle:{ fontSize:11, letterSpacing:1.4, textTransform:"uppercase", color:C.danger },
   errText:{ fontSize:14, color:C.ink, marginTop:5, lineHeight:20 },
-
   note:{ marginTop:20, fontSize:13, color:C.inkSoft, fontStyle:"italic", lineHeight:19 },
-  linkBtn:{ marginTop:26, alignItems:"center", paddingVertical:8 },
+  devBtn:{ marginTop:26, borderWidth:1, borderColor:C.water, paddingVertical:13, alignItems:"center" },
+  devText:{ fontSize:12, color:C.water, letterSpacing:1.4, textTransform:"uppercase" },
+  linkBtn:{ marginTop:14, alignItems:"center", paddingVertical:8 },
   linkText:{ fontSize:12, color:C.inkSoft, textDecorationLine:"underline" },
 });

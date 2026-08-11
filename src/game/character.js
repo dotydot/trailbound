@@ -8,7 +8,7 @@
    ------------------------------------------------------------ */
 
 import * as SQLite from "expo-sqlite";
-import { levelFromXp, BADGES, DEFAULT_REGION } from "./world";
+import { levelFromXp, BADGES, DEFAULT_REGION } from "./rules";
 
 let dbPromise = null;
 const db = () => (dbPromise ??= SQLite.openDatabaseAsync("trailbound.db"));

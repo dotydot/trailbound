@@ -11,7 +11,7 @@ import React, { useState, useMemo } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet } from "react-native";
 import Svg, { Path, Circle, Line, Rect } from "react-native-svg";
 
-import { RARITY } from "../game/world";
+import { RARITY } from "../game/rules";
 
 const C = {
   paper:"#EDEFE3", paperDeep:"#E2E5D6", sheet:"#F5F6EC",

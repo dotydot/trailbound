@@ -10,7 +10,7 @@
    the core pack guarantees there are never holes.
    ------------------------------------------------------------ */
 
-import { mulberry32, hashString } from "./engine";
+import { mulberry32, hashString } from "./rules";
 
 /* ---------- the core pack: the generic floor ---------- */
 export const CORE_PACK = {
