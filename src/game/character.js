@@ -26,7 +26,12 @@ export const BLANK_CHARACTER = {
   bestClass: 0,
   condition: 100,
   conditionUpdatedAt: null,
-  gear: {},
+  gear: {
+    Boots: { slot:"Boots", name:"Broken-In Boots", rarity:"Common",
+             power:12, weight:3, reforges:0 },
+    Pack:  { slot:"Pack", name:"Old Daypack", rarity:"Common",
+             power:8, weight:5, capacityGranted:4, reforges:0 },
+  },
   stash: [],
   nemeses: {},
   trophies: [],

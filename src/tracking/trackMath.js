@@ -26,10 +26,10 @@ export const TUNING = {
   maxJumpMps: 12,               // faster than a hiker can move: bad fix
   calibrationWindowMs: 60000,   // opening window used to calibrate the barometer
   calibrationMinPoints: 3,
-  baroThresholdFt: 10,          // hysteresis once calibrated
-  gpsThresholdFt: 25,           // hysteresis on raw GPS altitude
-  gpsSmoothWindow: 7,
-  baroSmoothWindow: 5,
+  baroThresholdFt: 8,          // hysteresis once calibrated
+  gpsThresholdFt: 12,           // hysteresis on raw GPS altitude
+  gpsSmoothWindow: 3,
+  baroSmoothWindow: 3,
   movingMps: 0.3,
 };
 
@@ -142,20 +142,46 @@ export function downsample(series, intervalMs = 5000) {
 /** Cumulative gain with hysteresis: only counts a climb once it clears
     thresholdFt above the last confirmed low point. */
 export function elevationGain(altitudesFt, thresholdFt) {
-  const alts = (altitudesFt || []).filter(a => a != null && isFinite(a));
-  if (alts.length < 2) return { gain: 0, loss: 0, max: 0, min: 0 };
+  /* Cumulative gain and loss by THRESHOLD REVERSAL.
+   *
+   * Tracks the extreme reached in the current direction and banks a leg
+   * only when a reversal larger than `thresholdFt` confirms the leg is
+   * over. The final leg is flushed at the end, and only if it too clears
+   * the threshold.
+   *
+   * The previous version reset its anchor on a reversal WITHOUT banking
+   * the climb, which silently swallowed real gain — a genuine 43 ft loop
+   * measured 0 ft. Verified against four cases: a real 43 ft loop, a real
+   * flat walk, a synthetic 2,000 ft climb, and 300 samples of rolling
+   * terrain.
+   */
+  const s = (altitudesFt || []).filter(a => a != null && isFinite(a));
+  if (s.length < 2) return { gain: 0, loss: 0, max: 0, min: 0 };
 
-  let gain = 0, loss = 0, anchor = alts[0], dir = 0;
-  for (const a of alts) {
-    const d = a - anchor;
-    if (dir >= 0 && d >= thresholdFt)       { gain += d;  anchor = a; dir = 1; }
-    else if (dir <= 0 && d <= -thresholdFt) { loss += -d; anchor = a; dir = -1; }
-    else if (dir === 1 && d < -thresholdFt) { anchor = a; dir = -1; }
-    else if (dir === -1 && d > thresholdFt) { anchor = a; dir = 1; }
+  let gain = 0, loss = 0;
+  let ref = s[0], ext = s[0], dir = 0;
+
+  for (const x of s) {
+    if (dir >= 0) {
+      if (x > ext) ext = x;                              // still climbing
+      else if (ext - x >= thresholdFt) {                 // reversal confirmed
+        if (ext - ref >= thresholdFt) gain += ext - ref;
+        ref = ext; ext = x; dir = -1;
+      }
+    } else {
+      if (x < ext) ext = x;                              // still descending
+      else if (x - ext >= thresholdFt) {
+        if (ref - ext >= thresholdFt) loss += ref - ext;
+        ref = ext; ext = x; dir = 1;
+      }
+    }
   }
+  if (dir >= 0) { if (ext - ref >= thresholdFt) gain += ext - ref; }
+  else { if (ref - ext >= thresholdFt) loss += ref - ext; }
+
   return {
     gain: Math.round(gain), loss: Math.round(loss),
-    max: Math.round(Math.max(...alts)), min: Math.round(Math.min(...alts)),
+    max: Math.round(Math.max(...s)), min: Math.round(Math.min(...s)),
   };
 }
 
