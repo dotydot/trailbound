@@ -27,7 +27,7 @@ const C = {
   danger:"#A63D2E", ok:"#3F7A52", water:"#4A7C94", gold:"#B0682A",
 };
 
-export default function DevTools({ character, onClose }) {
+export default function DevTools({ character, onClose, onWipe }) {
   const [tracks, setTracks] = useState([]);
   const [stats, setStats] = useState(null);
   const [open, setOpen] = useState(null);      // re-resolved track detail
@@ -263,10 +263,6 @@ export default function DevTools({ character, onClose }) {
   /* ---------- list view ---------- */
   return (
     <ScrollView contentContainerStyle={st.wrap}>
-      <Pressable onPress={onClose} style={st.back}>
-        <Text style={st.backText}>← Back</Text>
-      </Pressable>
-
       <Text style={st.eyebrow}>Trailbound · dev tools</Text>
       <Text style={st.h1}>Tracks</Text>
       {stats && (
@@ -321,6 +317,12 @@ export default function DevTools({ character, onClose }) {
         constant in rules.js and reopening a track shows what that change would
         have done. Nothing here alters your character.
       </Text>
+
+      {onWipe && (
+        <Pressable onPress={onWipe} style={st.wipeBtn}>
+          <Text style={st.wipeText}>Reset character</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -380,4 +382,7 @@ const st = StyleSheet.create({
            backgroundColor:"#FBEDEA", padding:11 },
   msgText:{ fontSize:12.5, color:C.ink },
   hint:{ marginTop:16, fontSize:12, color:C.inkSoft, fontStyle:"italic", lineHeight:18 },
+  wipeBtn:{ marginTop:22, borderWidth:1, borderColor:C.danger,
+            paddingVertical:12, alignItems:"center" },
+  wipeText:{ fontSize:11.5, color:C.danger, letterSpacing:1.4, textTransform:"uppercase" },
 });
